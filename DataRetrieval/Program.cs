@@ -94,10 +94,23 @@ namespace DataRetrieval
         public DebugMessage debug { get; set; }
     }
 
+    public class PlaceComparer : IEqualityComparer<Place>
+    {
+        public bool Equals(Place place1, Place place2)
+        {
+            return place1.id == place2.id;
+        }
+
+        public int GetHashCode(Place customer)
+        {
+            return customer.id;
+        }
+    }
+
     class Program
     {
        
-        private List<Place> data = new List<Place>();
+        private HashSet<Place> data = new HashSet<Place>(new PlaceComparer());
 
         private String FormatRequest(double lonMin, double latMin, double lonMax, double latMax, uint page = 1, int pageCount = 100)
         {
@@ -130,7 +143,7 @@ namespace DataRetrieval
             return false;
         }
 
-        public async Task LoadFromWikimapia(double lonMin, double latMin, double lonMax, double latMax, uint maxNumPages = uint.MaxValue)
+        public async Task<bool> LoadFromWikimapia(double lonMin, double latMin, double lonMax, double latMax, uint maxNumPages = uint.MaxValue)
         {
             HttpClient client = new HttpClient();
             client.DefaultRequestHeaders.Accept.Clear();
@@ -141,7 +154,7 @@ namespace DataRetrieval
             {
                 RootObject rootObject = await response.Content.ReadAsAsync<RootObject>();
                 if (await CheckForErrorMessage(rootObject, response))
-                    return;
+                    return false;
                 foreach (Place place in rootObject.places)
                     data.Add(place);
                 Console.WriteLine("Number of places found: " + rootObject.found);
@@ -152,23 +165,39 @@ namespace DataRetrieval
                 // Load the rest of the pages
                 double numPages = Math.Ceiling(Convert.ToDouble(rootObject.found) / rootObject.count);
                 var numPagesToLoad = Math.Min(numPages, maxNumPages);
-                for (uint page = 2; page <= numPagesToLoad; ++page)
-                {                
-                    response = await client.GetAsync(FormatRequest(lonMin, latMin, lonMax, latMax, page, rootObject.count));
-                    rootObject = await response.Content.ReadAsAsync<RootObject>();                 
-                    Console.WriteLine("Loading page: " + page + "/" + numPagesToLoad);
-                    if (await CheckForErrorMessage(rootObject, response))
-                        return;
-                    foreach (Place place in rootObject.places)
-                        data.Add(place);
-                    // Up to 100 requests per 5 minutes...
-                    await Task.Delay(4000);
+
+                // Can't load more than 10000 objects per area
+                if (numPagesToLoad * rootObject.count >= 10000)
+                {
+                    // Recursively load data from smaller areas
+                    bool result = true;
+                    result &= await LoadFromWikimapia(lonMin, latMin, lonMin + (lonMax - lonMin) / 2, latMin + (latMax - latMin) / 2);
+                    result &= await LoadFromWikimapia(lonMin + (lonMax - lonMin) / 2, latMin, lonMax, latMin + (latMax - latMin) / 2);
+                    result &= await LoadFromWikimapia(lonMin + (lonMax - lonMin) / 2, latMin + (latMax - latMin) / 2, lonMax, latMax);
+                    result &= await LoadFromWikimapia(lonMin, latMin + (latMax - latMin) / 2, lonMin + (lonMax - lonMin) / 2, latMax);
+                    return result;
+                }
+                else
+                {
+                    for (uint page = 2; page <= numPagesToLoad; ++page)
+                    {
+                        response = await client.GetAsync(FormatRequest(lonMin, latMin, lonMax, latMax, page, rootObject.count));
+                        rootObject = await response.Content.ReadAsAsync<RootObject>();
+                        Console.WriteLine("Loading page: " + page + "/" + numPagesToLoad);
+                        if (await CheckForErrorMessage(rootObject, response))
+                            return false;
+                        foreach (Place place in rootObject.places)
+                            data.Add(place);
+                        // Up to 100 requests per 5 minutes...
+                        await Task.Delay(4000);
+                    }
                 }
             }
 
+            return true;
         }
 
-        public async Task LoadPageRange(double lonMin, double latMin, double lonMax, double latMax, uint startPage, uint endPage)
+        public async Task<bool> LoadPageRange(double lonMin, double latMin, double lonMax, double latMax, uint startPage, uint endPage)
         {
             HttpClient client = new HttpClient();
             client.DefaultRequestHeaders.Accept.Clear();
@@ -179,7 +208,7 @@ namespace DataRetrieval
             {
                 RootObject rootObject = await response.Content.ReadAsAsync<RootObject>();
                 if (await CheckForErrorMessage(rootObject, response))
-                    return;
+                    return false;
                 foreach (Place place in rootObject.places)
                     data.Add(place);
                 Console.WriteLine("Number of places found: " + rootObject.found);
@@ -194,7 +223,7 @@ namespace DataRetrieval
                     rootObject = await response.Content.ReadAsAsync<RootObject>();
                     Console.WriteLine("Loading page: " + page + "/" + endPage);
                     if (await CheckForErrorMessage(rootObject, response))
-                        return;
+                        return false;
                     foreach (Place place in rootObject.places)
                         data.Add(place);
                     // Up to 100 requests per 5 minutes...
@@ -202,12 +231,59 @@ namespace DataRetrieval
                 }
             }
 
+            return true;
+        }
+
+        public async Task LoadFromWikimapiaBySubdivision(double lonMin, double latMin, double lonMax, double latMax, double subdivisionSize)
+        {
+            for (int i = 0; i < Math.Ceiling((latMax - latMin) / subdivisionSize); ++i)
+            {
+                for (int j = 0; j < Math.Ceiling((lonMax - lonMin) / subdivisionSize); ++j)
+                {
+                    double newLonMin = lonMin+j*subdivisionSize;
+                    double newLatMin = latMin+i*subdivisionSize;
+                    double newLonMax = Math.Min(newLonMin + subdivisionSize, lonMax);
+                    double newLatMax = Math.Min(newLatMin + subdivisionSize, latMax);
+                    Console.WriteLine("Loading data from area (latitude, longitude)=(" + newLatMin + ", " + newLonMin + ") ; (" + newLatMax + ", " + newLonMax + ")");
+                    bool successfulLoad = await LoadFromWikimapia(newLonMin, newLatMin, newLonMin + subdivisionSize, newLatMin + subdivisionSize);
+                    if (!successfulLoad) // Repeat the same query
+                        --j;
+                }
+            }
+        }
+
+        public static double ConvertToRadians(double angle)
+        {
+            return (Math.PI / 180) * angle;
+        }
+
+        // Returns the distance in meters between the points (lat1, lon1) and (lat2, long2)
+        public static double Distance(double lat1, double lon1, double lat2, double lon2)
+        {
+            // Haversince formula
+            var R = 6371000; // Eath radius in metres
+            lat1 = ConvertToRadians(lat1);
+            lat2 = ConvertToRadians(lat2);
+            var deltaLat = lat2 - lat1;
+            var deltaLon = ConvertToRadians(lon2 - lon1);
+
+            var a = Math.Sin(deltaLat / 2) * Math.Sin(deltaLat / 2) +
+                    Math.Cos(lat1) * Math.Cos(lat2) *
+                    Math.Sin(deltaLon / 2) * Math.Sin(deltaLon / 2);
+            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+
+            return R * c;
         }
 
         static void Main(string[] args)
         {
+            var NSDistance = Distance(48.676114, 2.045517, 49.041539, 2.045517);
+            var EWDistance = Distance(48.676114, 2.045517, 48.676114, 2.736969);
             Program program = new Program();
-            program.LoadPageRange(2, 48, 3, 49, 1, 199).Wait();
+            //program.LoadFromWikimapia(2.045517, 48.676114, 2.736969, 49.041539).Wait();
+
+            program.LoadFromWikimapiaBySubdivision(2.045517, 48.676114, 2.736969, 49.041539, 0.05).Wait();
+            Console.WriteLine("Retrieved " + program.data.Count + " entries");
             StreamWriter sw = new StreamWriter("data.json");
             JsonWriter writer = new JsonTextWriter(sw);
             JsonSerializer serializer = new JsonSerializer();

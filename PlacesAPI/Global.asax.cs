@@ -18,7 +18,6 @@ namespace PlacesAPI
             FilterConfig.RegisterGlobalFilters(GlobalFilters.Filters);
             RouteConfig.RegisterRoutes(RouteTable.Routes);
             BundleConfig.RegisterBundles(BundleTable.Bundles);
-            PlacesDatabase.LoadFromWikimapia(2, 48, 3, 49);
         }
     }
 }
