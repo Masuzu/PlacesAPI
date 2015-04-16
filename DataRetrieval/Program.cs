@@ -11,105 +11,8 @@ using System.Threading.Tasks;
 
 namespace DataRetrieval
 {
-    public class Tag
-    {
-        public int id { get; set; }
-        public string title { get; set; }
-    }
-
-    public class Polygon
-    {
-        public double x { get; set; }
-        public double y { get; set; }
-    }
-
-    public class Gadm
-    {
-        public string id { get; set; }
-        public string country { get; set; }
-        public string level { get; set; }
-        public string is_last_level { get; set; }
-        public string name { get; set; }
-        public object iso { get; set; }
-        public object type { get; set; }
-        public string translation { get; set; }
-    }
-
-    public class Location
-    {
-        public double lon { get; set; }
-        public double lat { get; set; }
-        public double north { get; set; }
-        public double south { get; set; }
-        public double east { get; set; }
-        public double west { get; set; }
-        public string country { get; set; }
-        public string state { get; set; }
-        public string place { get; set; }
-        public int country_adm_id { get; set; }
-        public List<Gadm> gadm { get; set; }
-        public string city_id { get; set; }
-        public object city { get; set; }
-        public int zoom { get; set; }
-    }
-
-    public class Place
-    {
-        public int id { get; set; }
-        public int language_id { get; set; }
-        public string language_iso { get; set; }
-        public string urlhtml { get; set; }
-        public string title { get; set; }
-        public List<Tag> tags { get; set; }
-        public string wikipedia { get; set; }
-        public bool is_building { get; set; }
-        public bool is_region { get; set; }
-        public bool is_deleted { get; set; }
-        public string parent_id { get; set; }
-        public List<Polygon> polygon { get; set; }
-        public Location location { get; set; }
-        public string description { get; set; }
-    }
-
-    public class RootObject
-    {
-        public string language { get; set; }
-        // Total number of results
-        public string found { get; set; }
-        public List<Place> places { get; set; }
-        public int page { get; set; }
-        // Number of results returned per page
-        public int count { get; set; }
-    }
-
-    // Captures error messsages
-    public class DebugMessage
-    {
-        public int code { get; set; }
-        public string message { get; set; }
-    }
-
-    public class DebugRootObject
-    {
-        public DebugMessage debug { get; set; }
-    }
-
-    public class PlaceComparer : IEqualityComparer<Place>
-    {
-        public bool Equals(Place place1, Place place2)
-        {
-            return place1.id == place2.id;
-        }
-
-        public int GetHashCode(Place customer)
-        {
-            return customer.id;
-        }
-    }
-
     class Program
-    {
-       
+    {     
         private HashSet<Place> data = new HashSet<Place>(new PlaceComparer());
 
         private String FormatRequest(double lonMin, double latMin, double lonMax, double latMax, uint page = 1, int pageCount = 100)
@@ -252,42 +155,30 @@ namespace DataRetrieval
             }
         }
 
-        public static double ConvertToRadians(double angle)
-        {
-            return (Math.PI / 180) * angle;
-        }
-
-        // Returns the distance in meters between the points (lat1, lon1) and (lat2, long2)
-        public static double Distance(double lat1, double lon1, double lat2, double lon2)
-        {
-            // Haversince formula
-            var R = 6371000; // Eath radius in metres
-            lat1 = ConvertToRadians(lat1);
-            lat2 = ConvertToRadians(lat2);
-            var deltaLat = lat2 - lat1;
-            var deltaLon = ConvertToRadians(lon2 - lon1);
-
-            var a = Math.Sin(deltaLat / 2) * Math.Sin(deltaLat / 2) +
-                    Math.Cos(lat1) * Math.Cos(lat2) *
-                    Math.Sin(deltaLon / 2) * Math.Sin(deltaLon / 2);
-            var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
-
-            return R * c;
-        }
-
         static void Main(string[] args)
         {
-            var NSDistance = Distance(48.676114, 2.045517, 49.041539, 2.045517);
-            var EWDistance = Distance(48.676114, 2.045517, 48.676114, 2.736969);
+            //var NSDistance = Distance(48.676114, 2.045517, 49.041539, 2.045517);
+            //var EWDistance = Distance(48.676114, 2.045517, 48.676114, 2.736969);
+            var NSDistance = Geolocalization.Distance(Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude + 0.04, Geolocalization.ParisLongitude - 0.055);
+            var EWDistance = Geolocalization.Distance(Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude + 0.055);
             Program program = new Program();
             //program.LoadFromWikimapia(2.045517, 48.676114, 2.736969, 49.041539).Wait();
 
-            program.LoadFromWikimapiaBySubdivision(2.045517, 48.676114, 2.736969, 49.041539, 0.05).Wait();
+            //program.LoadFromWikimapiaBySubdivision(2.045517, 48.676114, 2.736969, 49.041539, 0.05).Wait();
+            program.LoadFromWikimapia(Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude + 0.055, Geolocalization.ParisLatitude + 0.04).Wait();
             Console.WriteLine("Retrieved " + program.data.Count + " entries");
-            StreamWriter sw = new StreamWriter("data.json");
-            JsonWriter writer = new JsonTextWriter(sw);
+           
+            List<Place> dataList = program.data.ToList();
             JsonSerializer serializer = new JsonSerializer();
-            serializer.Serialize(writer, program.data);
+            for (int page = 0; page < Math.Ceiling(Convert.ToDouble(dataList.Count) / 100); ++page)
+            {
+                var dataSubset = dataList.GetRange(page * 100, Math.Min(100, dataList.Count - page * 100));
+                StreamWriter sw = new StreamWriter("data" + page + ".json");
+                JsonWriter writer = new JsonTextWriter(sw);
+                serializer.Serialize(writer, dataSubset);
+                sw.Flush();
+            }
+           
         }
     }
 }

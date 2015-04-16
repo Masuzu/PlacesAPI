@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PlacesAPI", "PlacesAPI\Plac
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataRetrieval", "DataRetrieval\DataRetrieval.csproj", "{1A8F5CE9-4EFD-4F46-8182-1DA3E0DC96F4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Deduplication", "Deduplication\Deduplication.csproj", "{BB6259C8-A0C4-4788-936B-CBFAAE6E5F3B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{1A8F5CE9-4EFD-4F46-8182-1DA3E0DC96F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{1A8F5CE9-4EFD-4F46-8182-1DA3E0DC96F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{1A8F5CE9-4EFD-4F46-8182-1DA3E0DC96F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BB6259C8-A0C4-4788-936B-CBFAAE6E5F3B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BB6259C8-A0C4-4788-936B-CBFAAE6E5F3B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BB6259C8-A0C4-4788-936B-CBFAAE6E5F3B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BB6259C8-A0C4-4788-936B-CBFAAE6E5F3B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
