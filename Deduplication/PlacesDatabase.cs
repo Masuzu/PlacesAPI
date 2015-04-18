@@ -1,4 +1,5 @@
-﻿using Newtonsoft.Json;
+﻿using HtmlAgilityPack;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -82,16 +83,32 @@ namespace Deduplication
     }
 
 
-    class PlacesDatabase
+    public class PlacesDatabase
     {
-        HashSet<Place> data = new HashSet<Place>();
+        public HashSet<Place> Places { get; set; }
+
+        public PlacesDatabase()
+        {
+            Places = new HashSet<Place>();
+        }
 
         public void Load(String JSONFile)
         {
             using (StreamReader r = new StreamReader(JSONFile))
             {
                 string serializedJSON = r.ReadToEnd();
-                data = JsonConvert.DeserializeObject<HashSet<Place>>(serializedJSON);
+                List<Place> fileData = JsonConvert.DeserializeObject<List<Place>>(serializedJSON);
+                foreach (Place place in fileData)
+                {
+                    if (place.title == null)
+                    {
+                        // Set the text between the <a> tags of urlhtml as the title of place if it is missing
+                        HtmlDocument doc = new HtmlDocument();
+                        doc.LoadHtml(place.urlhtml);
+                        place.title = doc.DocumentNode.SelectNodes("//a[@href]")[0].InnerText;
+                    }
+                    Places.Add(place);
+                }
             }
         }
     }

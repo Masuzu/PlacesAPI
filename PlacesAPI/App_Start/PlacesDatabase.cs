@@ -93,7 +93,9 @@ namespace PlacesAPI
             using (StreamReader r = new StreamReader(JSONFile))
             {
                 string serializedJSON = r.ReadToEnd();
-                data = JsonConvert.DeserializeObject<HashSet<Place>>(serializedJSON);
+                List<Place> fileData = JsonConvert.DeserializeObject<List<Place>>(serializedJSON);
+                foreach (Place place in fileData)
+                    data.Add(place);
             }
         }
     }
