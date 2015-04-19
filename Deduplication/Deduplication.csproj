@@ -50,7 +50,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="PlacesDatabase.cs" />
-    <Compile Include="Program.cs" />
+    <Compile Include="Deduplication.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

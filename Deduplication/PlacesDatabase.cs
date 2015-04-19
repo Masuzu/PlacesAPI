@@ -88,6 +88,8 @@ namespace Deduplication
         public const int UndefinedTileId = Int32.MinValue;
 
         public HashSet<Place> Places { get; private set; }
+        Dictionary<String, Place> placeByName = new  Dictionary<String, Place>();
+
         public double MinLatitude { get; private set; }
         public double MaxLatitude { get; private set; }
         public double MinLongitude { get; private set; }
@@ -127,13 +129,24 @@ namespace Deduplication
                         place.title = doc.DocumentNode.SelectNodes("//a[@href]")[0].InnerText;
                     }
                     Places.Add(place);
+                    placeByName[place.title] = place;
                 }
             }
         }
 
-        public void AddPlace(String placeTitle)
+        public void AddPlace(string placeTitle)
         {
-            Places.Add(new Place { title = placeTitle });
+            Place newPlace = new Place { title = placeTitle };
+            Places.Add(newPlace);
+            placeByName[newPlace.title] = newPlace;
+        }
+
+        public Place GetByName(string placeName)
+        {
+            Place place;
+            if (placeByName.TryGetValue(placeName, out place))
+                return place;
+            return null;
         }
 
         public int GetTileId(Place place)

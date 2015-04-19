@@ -86,7 +86,7 @@ namespace PlacesAPI
 
     public static class PlacesDatabase
     {
-        static HashSet<Place> data = new HashSet<Place>(new PlaceComparer());
+        static HashSet<Place> data = new HashSet<Place>();
 
         public static void Load(String JSONFile)
         {
