@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -81,15 +82,28 @@ namespace Deduplication
             return customer.id;
         }
     }
-
-
+    
     public class PlacesDatabase
     {
-        public HashSet<Place> Places { get; set; }
+        public const int UndefinedTileId = Int32.MinValue;
+
+        public HashSet<Place> Places { get; private set; }
+        public double MinLatitude { get; private set; }
+        public double MaxLatitude { get; private set; }
+        public double MinLongitude { get; private set; }
+        public double MaxLongitude { get; private set; }
+
+        public double TileSize { get; private set; }
+
+        public List<Place>[,] placesByArea;
 
         public PlacesDatabase()
         {
             Places = new HashSet<Place>();
+            MinLatitude = Double.MaxValue;
+            MinLongitude = Double.MaxValue;
+            MaxLatitude = Double.MinValue;
+            MaxLongitude = Double.MinValue;
         }
 
         public void Load(String JSONFile)
@@ -100,6 +114,11 @@ namespace Deduplication
                 List<Place> fileData = JsonConvert.DeserializeObject<List<Place>>(serializedJSON);
                 foreach (Place place in fileData)
                 {
+                    MinLatitude = Math.Min(MinLatitude, place.location.lat);
+                    MinLongitude = Math.Min(MinLongitude, place.location.lon);
+                    MaxLatitude = Math.Max(MaxLatitude, place.location.lat);
+                    MaxLongitude = Math.Max(MaxLongitude, place.location.lon);
+
                     if (place.title == null)
                     {
                         // Set the text between the <a> tags of urlhtml as the title of place if it is missing
@@ -109,6 +128,46 @@ namespace Deduplication
                     }
                     Places.Add(place);
                 }
+            }
+        }
+
+        public void AddPlace(String placeTitle)
+        {
+            Places.Add(new Place { title = placeTitle });
+        }
+
+        public int GetTileId(Place place)
+        {
+            // Cantor pairing function (http://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function)
+            int i = (int)Math.Floor((place.location.lat - MinLatitude) / TileSize);
+            int j = (int)Math.Floor((place.location.lon - MinLongitude) / TileSize);
+            return (int)((double)((i+j)*(i+j+1))/2+j);
+        }
+
+        public List<Place> GetPlacesInSameTileAs(Place place)
+        {
+            int i = (int)Math.Floor((place.location.lat - MinLatitude) / TileSize);
+            int j = (int)Math.Floor((place.location.lon - MinLongitude) / TileSize);
+            return placesByArea[i, j];
+        }
+
+        public void GenerateTiles(double tileSize)
+        {
+            TileSize = tileSize;
+            double latRange = MaxLatitude - MinLatitude;
+            double lonRange = MaxLongitude - MinLongitude;
+            placesByArea = new List<Place>[(int)(Math.Ceiling(latRange / tileSize)), (int)(Math.Ceiling(lonRange / tileSize))];
+            for (int i = 0; i < placesByArea.GetLength(0); ++i )
+            {
+                for (int j = 0; j < placesByArea.GetLength(1); ++j)
+                    placesByArea[i, j] = new List<Place>();
+            }
+
+            foreach (Place place in Places)
+            {
+                int i = (int)Math.Floor((place.location.lat - MinLatitude) / tileSize);
+                int j = (int)Math.Floor((place.location.lon - MinLongitude) / tileSize);
+                placesByArea[i, j].Add(place);
             }
         }
     }
