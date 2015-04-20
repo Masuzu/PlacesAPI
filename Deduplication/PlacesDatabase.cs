@@ -74,7 +74,7 @@ namespace Deduplication
     {
         public bool Equals(Place place1, Place place2)
         {
-            return place1.id == place2.id;
+            return (place1.id == place2.id && place1.title.Equals(place2.title));
         }
 
         public int GetHashCode(Place customer)
@@ -88,7 +88,7 @@ namespace Deduplication
         public const int UndefinedTileId = Int32.MinValue;
 
         public HashSet<Place> Places { get; private set; }
-        Dictionary<String, Place> placeByName = new  Dictionary<String, Place>();
+        Dictionary<String, List<Place>> placesByName = new Dictionary<String, List<Place>>();
 
         public double MinLatitude { get; private set; }
         public double MaxLatitude { get; private set; }
@@ -101,7 +101,7 @@ namespace Deduplication
 
         public PlacesDatabase()
         {
-            Places = new HashSet<Place>();
+            Places = new HashSet<Place>(new PlaceComparer());
             MinLatitude = Double.MaxValue;
             MinLongitude = Double.MaxValue;
             MaxLatitude = Double.MinValue;
@@ -129,23 +129,34 @@ namespace Deduplication
                         place.title = doc.DocumentNode.SelectNodes("//a[@href]")[0].InnerText;
                     }
                     Places.Add(place);
-                    placeByName[place.title] = place;
+
+                    string placeName = place.title;
+                    if (!placesByName.ContainsKey(placeName))
+                        placesByName.Add(placeName, new List<Place>());
+                    placesByName[placeName].Add(place);
                 }
             }
         }
 
-        public void AddPlace(string placeTitle)
+        // Add a new place named 'placeTitle' if it was not found in the places database
+        public List<Place> AddPlace(string placeTitle)
         {
-            Place newPlace = new Place { title = placeTitle };
-            Places.Add(newPlace);
-            placeByName[newPlace.title] = newPlace;
+            if (!placesByName.ContainsKey(placeTitle))
+            {
+                Random random = new Random();
+                Place newPlace = new Place { id = random.Next(), title = placeTitle };
+                Places.Add(newPlace);
+                placesByName[placeTitle] = new List<Place>();
+                placesByName[placeTitle].Add(newPlace);
+            }
+            return placesByName[placeTitle];
         }
 
-        public Place GetByName(string placeName)
+        public List<Place> GetByName(string placeName)
         {
-            Place place;
-            if (placeByName.TryGetValue(placeName, out place))
-                return place;
+            List<Place> places;
+            if (placesByName.TryGetValue(placeName, out places))
+                return places;
             return null;
         }
 

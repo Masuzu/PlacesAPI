@@ -78,9 +78,9 @@ namespace PlacesAPI
             return place1.id == place2.id;
         }
 
-        public int GetHashCode(Place customer)
+        public int GetHashCode(Place place)
         {
-            return customer.id;
+            return place.id;
         }
     }
 

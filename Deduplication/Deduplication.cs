@@ -14,27 +14,32 @@ namespace Deduplication
         #region Static variables
         enum Model { Name, SpatialContext };
 
+        const double BackgroundDistributonSmoothingFactor = 0.1;
+
         static PlacesDatabase database = new PlacesDatabase();
         static HashSet<String> vocabulary = new HashSet<String>();
         static Dictionary<String, Double> coreWordDistribution = new Dictionary<String, Double>();
         static Dictionary<String, Double> backgroundWordDistribution = new Dictionary<String, Double>();
         static Dictionary<Int32, Dictionary<String, Double>> geolocalizedBackgroundWordDistribution = new Dictionary<Int32, Dictionary<String, Double>>();
 
-        // Key: word in vocabulary, Value: place names in which it occurs
-        static Dictionary<String, List<String>> invertedIndex = new Dictionary<String, List<String>>();
+        // Key: word in vocabulary, Value: places in which it occurs
+        static Dictionary<String, List<Place>> invertedIndex = new Dictionary<String, List<Place>>();
 
-        // Key: place title, Value: list of words in the place title and the probability for each of them to be a core word
-        static Dictionary<String, Dictionary<String, Double>> isCoreWordProbability = new Dictionary<String, Dictionary<String, Double>>();
+        // Key: place identified by its unique id, Value: list of words in the place title and the probability for each of them to be a core word
+        static Dictionary<Place, Dictionary<String, Double>> isCoreWordProbability = new Dictionary<Place, Dictionary<String, Double>>(new PlaceComparer());
 
         static int numWords = 0;
         #endregion
 
         #region Expectation maximization
-        static Dictionary<String, Double> ComputeIsCoreProbabilityNameModel(string placeName)
+        // If multiple places named 'placeName' are found, select the one for which the core word distribution should be retrived with 'index'
+        static Dictionary<String, Double> ComputeIsCoreProbabilityNameModel(string placeName, int index = 0)
         {
-            if (AddOrUpdatePlaceName(placeName))
+            List<Place> places = database.AddPlace(placeName);
+            Place place = places[index];
+            if (AddOrUpdatePlaceName(place))
                 ExpectationMaximization(1, 1E-3, Model.Name);
-            return isCoreWordProbability[placeName];
+            return isCoreWordProbability[place];
         }
 
         // @param keys list of keys of 'probabilities'
@@ -107,7 +112,7 @@ namespace Deduplication
             return maxAbsoluteDifference;
         }
 
-        static double ComputeIsCoreProbabilitySpatialContextModel(Dictionary<String, Double> probabilities, string placeName)
+        static double ComputeIsCoreProbabilitySpatialContextModel(Dictionary<String, Double> probabilities, Place place)
         {
             double maxAbsoluteDifference = 0;
             List<string> keys = new List<string>(probabilities.Keys);
@@ -119,7 +124,6 @@ namespace Deduplication
             }
             else
             {
-                Place place = database.GetByName(placeName);
                 int tileId = database.GetTileId(place);
                 var backgroundDistribution = geolocalizedBackgroundWordDistribution[tileId];
                 maxAbsoluteDifference = Math.Max(
@@ -180,9 +184,9 @@ namespace Deduplication
             {
                 double numerator = 0;
                 // Sum up the probabilities of 'is word in the core of placeName' for each 'placeName' containing 'word' 
-                foreach (String placeName in invertedIndex[word])
+                foreach (Place place in invertedIndex[word])
                 {
-                    var probabilities = isCoreWordProbability[placeName];
+                    var probabilities = isCoreWordProbability[place];
                     numerator += probabilities[word];
                 }
                 coreWordDistribution[word] = numerator / numPlaceNames;
@@ -198,12 +202,52 @@ namespace Deduplication
             {
                 double numerator = 0;
                 // Sum up the probabilities of 'is word in the core of placeName' for each 'placeName' containing 'word' 
-                foreach (String placeName in invertedIndex[word])
+                foreach (Place place in invertedIndex[word])
                 {
-                    var probabilities = isCoreWordProbability[placeName];
+                    var probabilities = isCoreWordProbability[place];
                     numerator += (1 - probabilities[word]);
                 }
                 backgroundWordDistribution[word] = numerator / denominator;
+            });
+        }
+
+        static void UpdateBDistributionSpatialContextModel()
+        {
+            Parallel.ForEach(geolocalizedBackgroundWordDistribution, tileDistribution =>
+            {
+                int tileId = tileDistribution.Key;
+                var wordDistribution = tileDistribution.Value;
+                List<String> words = new List<String>(wordDistribution.Keys);
+                double denominator = 0;
+                foreach (string word in words)
+                {
+                    foreach (Place place in invertedIndex[word])
+                    {
+                        if (database.GetTileId(place) == tileId)
+                        {
+                            var probabilities = isCoreWordProbability[place];
+                            denominator += (1 - probabilities[word]);
+                        }
+                    }
+                }
+
+                foreach (string word in words)
+                {
+                    double numerator = 0;
+                    // Iterate over the place names located in tileId and which contain 'word'
+                    foreach (Place place in invertedIndex[word])
+                    {
+                        if (database.GetTileId(place) == tileId)
+                        {
+                            var probabilities = isCoreWordProbability[place];
+                            numerator += (1 - probabilities[word]);
+                        }
+                    }
+                    wordDistribution[word] = numerator / denominator;
+                    // Smooth by interpolating the tile distributions with the global background
+                    wordDistribution[word] = BackgroundDistributonSmoothingFactor * wordDistribution[word]
+                       + (1 - BackgroundDistributonSmoothingFactor) * backgroundWordDistribution[word];
+                }
             });
         }
 
@@ -217,10 +261,11 @@ namespace Deduplication
             else if (model == Model.SpatialContext)
             {
                 UpdateCoreWordProbabilities();
+                UpdateBackgroundDistributionNameModel();
+                UpdateBDistributionSpatialContextModel();
             }
         }
 
-        // TODO: extend to other models
         static void ExpectationMaximization(int maxNumSteps, double threshold, Model model)
         {
             for (int step = 0; step < maxNumSteps; ++step)
@@ -242,22 +287,17 @@ namespace Deduplication
             return s;
         }
 
-        // @param tileId the unique ID of the tile 'place' belongs to. Retrieved from PlaceDatabase.GetTileId
+        // Returns true if placeName contains new words
         static bool AddOrUpdatePlaceName(Place place)
         {
-            if (place.location == null)
-                return AddOrUpdatePlaceName(place.title);
-            return AddOrUpdatePlaceName(place.title, database.GetTileId(place));
-        }
-
-        // Returns true if placeName contains new words
-        static bool AddOrUpdatePlaceName(string placeName, int tileId = PlacesDatabase.UndefinedTileId)
-        {
-            if (!isCoreWordProbability.ContainsKey(placeName))
+            int tileId = PlacesDatabase.UndefinedTileId;
+            if (place.location != null)
+                tileId = database.GetTileId(place);
+            if (!isCoreWordProbability.ContainsKey(place))
             {
-                isCoreWordProbability.Add(placeName, new Dictionary<String, Double>());
-                Dictionary<String, Double> probabilityList = isCoreWordProbability[placeName];
-                string[] words = placeName.Split(' ');
+                isCoreWordProbability.Add(place, new Dictionary<String, Double>());
+                Dictionary<String, Double> probabilityList = isCoreWordProbability[place];
+                string[] words = place.title.Split(' ');
                 foreach (string word in words)
                 {
                     string processedWord = FilterWord(word);
@@ -265,9 +305,9 @@ namespace Deduplication
                     {
                         if (vocabulary.Add(processedWord))
                         {
-                            invertedIndex.Add(processedWord, new List<String>());
-                            coreWordDistribution.Add(processedWord, 0);
-                            backgroundWordDistribution.Add(processedWord, 0);
+                            invertedIndex.Add(processedWord, new List<Place>());
+                            coreWordDistribution.Add(processedWord, 1);
+                            backgroundWordDistribution.Add(processedWord, 1);
                         }
                         if (tileId != PlacesDatabase.UndefinedTileId)
                         {
@@ -275,7 +315,7 @@ namespace Deduplication
                                 geolocalizedBackgroundWordDistribution.Add(tileId, new Dictionary<string,double>());
                             geolocalizedBackgroundWordDistribution[tileId][processedWord] = 0;
                         }
-                        invertedIndex[processedWord].Add(placeName);
+                        invertedIndex[processedWord].Add(place);
                         probabilityList[processedWord] = 0;
                         ++numWords;
                     }
@@ -291,7 +331,7 @@ namespace Deduplication
             string[] filePaths = Directory.GetFiles("../../../Data/");
             foreach (string filePath in filePaths)
                 database.Load(filePath);
-            database.GenerateTiles(0.01);
+            database.GenerateTiles(0.05);
 
             //database.AddPlace("Starbucks Coffee");
             //database.AddPlace("Peets Coffee");
@@ -316,10 +356,10 @@ namespace Deduplication
                 foreach (String word in keys)
                     probabilities[word] = uniformProbability;
             });
-
+    
             // Run the expectation maximization algorithm
-            ExpectationMaximization(1000, 1E-3, Model.Name);
-            var test = ComputeIsCoreProbabilityNameModel("Montparnasse station");
+            ExpectationMaximization(100, 1E-3, Model.SpatialContext);
+            var test = ComputeIsCoreProbabilityNameModel("Golden Triangle");
         }
     }
 }
