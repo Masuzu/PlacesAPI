@@ -85,10 +85,15 @@ namespace Deduplication
     
     public class PlacesDatabase
     {
+        public enum Tiling {Coordinates, City};
+
+        Tiling tiling;
+
         public const int UndefinedTileId = Int32.MinValue;
 
         public HashSet<Place> Places { get; private set; }
         Dictionary<String, List<Place>> placesByName = new Dictionary<String, List<Place>>();
+        Dictionary<String, List<Place>> placesByCity = new Dictionary<String, List<Place>>();
 
         public double MinLatitude { get; private set; }
         public double MaxLatitude { get; private set; }
@@ -162,21 +167,46 @@ namespace Deduplication
 
         public int GetTileId(Place place)
         {
-            // Cantor pairing function (http://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function)
-            int i = (int)Math.Floor((place.location.lat - MinLatitude) / TileSize);
-            int j = (int)Math.Floor((place.location.lon - MinLongitude) / TileSize);
-            return (int)((double)((i+j)*(i+j+1))/2+j);
+            if (tiling == Tiling.City)
+                return Convert.ToInt32(place.location.city_id);
+            else if (tiling == Tiling.Coordinates)
+            {
+                // Cantor pairing function (http://en.wikipedia.org/wiki/Pairing_function#Cantor_pairing_function)
+                int i = (int)Math.Floor((place.location.lat - MinLatitude) / TileSize);
+                int j = (int)Math.Floor((place.location.lon - MinLongitude) / TileSize);
+                return (int)((double)((i + j) * (i + j + 1)) / 2 + j);
+            }
+            return 0;
         }
 
         public List<Place> GetPlacesInSameTileAs(Place place)
         {
-            int i = (int)Math.Floor((place.location.lat - MinLatitude) / TileSize);
-            int j = (int)Math.Floor((place.location.lon - MinLongitude) / TileSize);
-            return placesByArea[i, j];
+            if (tiling == Tiling.City)
+                return placesByCity[place.location.city_id];
+            else if (tiling == Tiling.Coordinates)
+            {
+                int i = (int)Math.Floor((place.location.lat - MinLatitude) / TileSize);
+                int j = (int)Math.Floor((place.location.lon - MinLongitude) / TileSize);
+                return placesByArea[i, j];
+            }
+            return null;
+        }
+
+        public void GenerateTilesByCity()
+        {
+            tiling = Tiling.City;
+            foreach(Place place in Places)
+            {
+                var cityId = place.location.city_id;
+                if (!placesByCity.ContainsKey(cityId))
+                    placesByCity.Add(cityId, new List<Place>());
+                placesByCity[cityId].Add(place);
+            }
         }
 
         public void GenerateTiles(double tileSize)
         {
+            tiling = Tiling.Coordinates;
             TileSize = tileSize;
             double latRange = MaxLatitude - MinLatitude;
             double lonRange = MaxLongitude - MinLongitude;
