@@ -10,6 +10,10 @@ namespace DataRetrieval
     {
         public const double ParisLatitude = 48.853943;
         public const double ParisLongitude = 2.343521;
+        public const double LyonLatitude = 45.764043;
+        public const double LyonLongitude = 4.835659;
+        public const double LondonLatitude = 51.507351;
+        public const double LondonLongitude = -0.127758;
         public static double ConvertToRadians(double angle)
         {
             return (Math.PI / 180) * angle;

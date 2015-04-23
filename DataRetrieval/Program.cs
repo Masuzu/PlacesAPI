@@ -159,13 +159,17 @@ namespace DataRetrieval
         {
             //var NSDistance = Distance(48.676114, 2.045517, 49.041539, 2.045517);
             //var EWDistance = Distance(48.676114, 2.045517, 48.676114, 2.736969);
-            var NSDistance = Geolocalization.Distance(Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude + 0.04, Geolocalization.ParisLongitude - 0.055);
-            var EWDistance = Geolocalization.Distance(Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude + 0.055);
+            //var NSDistance = Geolocalization.Distance(Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude + 0.04, Geolocalization.ParisLongitude - 0.055);
+            //var EWDistance = Geolocalization.Distance(Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude + 0.055);
             Program program = new Program();
             //program.LoadFromWikimapia(2.045517, 48.676114, 2.736969, 49.041539).Wait();
 
             //program.LoadFromWikimapiaBySubdivision(2.045517, 48.676114, 2.736969, 49.041539, 0.05).Wait();
-            program.LoadFromWikimapia(Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude + 0.055, Geolocalization.ParisLatitude + 0.04).Wait();
+            //program.LoadFromWikimapia(Geolocalization.ParisLongitude - 0.055, Geolocalization.ParisLatitude - 0.04, Geolocalization.ParisLongitude + 0.055, Geolocalization.ParisLatitude + 0.04).Wait();
+            // Lyon
+            //program.LoadFromWikimapia(4.792442, 45.679695, 4.968910, 45.787053).Wait();
+            // London
+            program.LoadFromWikimapia(-0.167198, 51.465465, -0.062828, 51.531721).Wait();
             Console.WriteLine("Retrieved " + program.data.Count + " entries");
            
             List<Place> dataList = program.data.ToList();
@@ -173,7 +177,7 @@ namespace DataRetrieval
             for (int page = 0; page < Math.Ceiling(Convert.ToDouble(dataList.Count) / 100); ++page)
             {
                 var dataSubset = dataList.GetRange(page * 100, Math.Min(100, dataList.Count - page * 100));
-                StreamWriter sw = new StreamWriter("data" + page + ".json");
+                StreamWriter sw = new StreamWriter("London" + page + ".json");
                 JsonWriter writer = new JsonTextWriter(sw);
                 serializer.Serialize(writer, dataSubset);
                 sw.Flush();

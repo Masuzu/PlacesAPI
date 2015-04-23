@@ -88,6 +88,7 @@ namespace Deduplication
         public enum Tiling {Coordinates, City};
 
         Tiling tiling;
+        bool tilesGenerated = false;
 
         public const int UndefinedTileId = Int32.MinValue;
 
@@ -120,25 +121,36 @@ namespace Deduplication
                 string serializedJSON = r.ReadToEnd();
                 List<Place> fileData = JsonConvert.DeserializeObject<List<Place>>(serializedJSON);
                 foreach (Place place in fileData)
+                    AddPlace(place);
+            }
+        }
+
+        void AddPlace(Place place)
+        {
+            MinLatitude = Math.Min(MinLatitude, place.location.lat);
+            MinLongitude = Math.Min(MinLongitude, place.location.lon);
+            MaxLatitude = Math.Max(MaxLatitude, place.location.lat);
+            MaxLongitude = Math.Max(MaxLongitude, place.location.lon);
+
+            if (place.title == null)
+            {
+                // Set the text between the <a> tags of urlhtml as the title of place if it is missing
+                HtmlDocument doc = new HtmlDocument();
+                doc.LoadHtml(place.urlhtml);
+                place.title = doc.DocumentNode.SelectNodes("//a[@href]")[0].InnerText;
+            }
+            if (Places.Add(place))
+            {
+                string placeName = place.title;
+                if (!placesByName.ContainsKey(placeName))
+                    placesByName.Add(placeName, new List<Place>());
+                placesByName[placeName].Add(place);
+                if(tilesGenerated)
                 {
-                    MinLatitude = Math.Min(MinLatitude, place.location.lat);
-                    MinLongitude = Math.Min(MinLongitude, place.location.lon);
-                    MaxLatitude = Math.Max(MaxLatitude, place.location.lat);
-                    MaxLongitude = Math.Max(MaxLongitude, place.location.lon);
-
-                    if (place.title == null)
-                    {
-                        // Set the text between the <a> tags of urlhtml as the title of place if it is missing
-                        HtmlDocument doc = new HtmlDocument();
-                        doc.LoadHtml(place.urlhtml);
-                        place.title = doc.DocumentNode.SelectNodes("//a[@href]")[0].InnerText;
-                    }
-                    Places.Add(place);
-
-                    string placeName = place.title;
-                    if (!placesByName.ContainsKey(placeName))
-                        placesByName.Add(placeName, new List<Place>());
-                    placesByName[placeName].Add(place);
+                    if (tiling == Tiling.City)
+                        UpdatePlacesByCity(place);
+                    else if (tiling == Tiling.Coordinates)
+                        UpdatePlacesByArea(place);
                 }
             }
         }
@@ -192,16 +204,44 @@ namespace Deduplication
             return null;
         }
 
+        void UpdatePlacesByCity(Place place)
+        {
+            var cityId = place.location.city_id;
+            if (!placesByCity.ContainsKey(cityId))
+                placesByCity.Add(cityId, new List<Place>());
+            placesByCity[cityId].Add(place);
+        }
+
+        T[,] ResizeArray<T>(T[,] original, int rows, int cols)
+        {
+            var newArray = new T[rows, cols];
+            int minRows = Math.Min(rows, original.GetLength(0));
+            int minCols = Math.Min(cols, original.GetLength(1));
+            for (int i = 0; i < minRows; i++)
+                for (int j = 0; j < minCols; j++)
+                    newArray[i, j] = original[i, j];
+            return newArray;
+        }
+
+        void UpdatePlacesByArea(Place place)
+        {
+            int i = (int)Math.Floor((place.location.lat - MinLatitude) / TileSize);
+            int j = (int)Math.Floor((place.location.lon - MinLongitude) / TileSize);
+            if (i >= placesByArea.GetLength(0) || j >= placesByArea.GetLength(1))
+            {
+                double latRange = MaxLatitude - MinLatitude;
+                double lonRange = MaxLongitude - MinLongitude;
+                placesByArea = ResizeArray(placesByArea, (int)(Math.Ceiling(latRange / TileSize)), (int)(Math.Ceiling(lonRange / TileSize)));
+            }
+            placesByArea[i, j].Add(place);
+        }
+
         public void GenerateTilesByCity()
         {
             tiling = Tiling.City;
-            foreach(Place place in Places)
-            {
-                var cityId = place.location.city_id;
-                if (!placesByCity.ContainsKey(cityId))
-                    placesByCity.Add(cityId, new List<Place>());
-                placesByCity[cityId].Add(place);
-            }
+            foreach (Place place in Places)
+                UpdatePlacesByCity(place);
+            tilesGenerated = true;
         }
 
         public void GenerateTiles(double tileSize)
@@ -223,6 +263,7 @@ namespace Deduplication
                 int j = (int)Math.Floor((place.location.lon - MinLongitude) / tileSize);
                 placesByArea[i, j].Add(place);
             }
+            tilesGenerated = true;
         }
     }
 }

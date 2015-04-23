@@ -14,7 +14,7 @@ namespace Deduplication
         #region Attributes
         public enum Model { Name, SpatialContext, IDF };
 
-        const double BackgroundDistributonSmoothingFactor = 0.5;
+        const double BackgroundDistributonSmoothingFactor = 0.8;
         const double CoreDistributonImportance = 0.5;
 
         public PlacesDatabase Database {get; private set;} 
@@ -24,17 +24,17 @@ namespace Deduplication
         Dictionary<Int32, Dictionary<String, Double>> geolocalizedBackgroundWordDistribution = new Dictionary<Int32, Dictionary<String, Double>>();
 
         // Key: word in vocabulary, Value: places in which it occurs
-        Dictionary<String, List<Place>> invertedIndex = new Dictionary<String, List<Place>>();
+        public Dictionary<String, List<Place>> invertedIndex = new Dictionary<String, List<Place>>();
 
         // Key: place identified by its unique id, Value: list of words in the place title and the probability for each of them to be a core word
-        Dictionary<Place, Dictionary<String, Double>> isCoreWordProbability = new Dictionary<Place, Dictionary<String, Double>>(new PlaceComparer());
-
+        public Dictionary<Place, Dictionary<String, Double>> IsCoreWordProbability { get; private set; }
         int numWords = 0;
         #endregion
 
         public Deduplication()
         {
             Database = new PlacesDatabase();
+            IsCoreWordProbability = new Dictionary<Place, Dictionary<String, Double>>(new PlaceComparer());
         }
 
         public void Setup()
@@ -68,12 +68,12 @@ namespace Deduplication
             Place place = places[index];
             if (AddOrUpdatePlaceName(place))
                 ExpectationMaximization(1, 1E-3, Model.Name);
-            return isCoreWordProbability[place];
+            return IsCoreWordProbability[place];
         }
 
         void ComputePosteriorIsCoreProbabilityNameModel()
         {
-            Parallel.ForEach(isCoreWordProbability, entry =>
+            Parallel.ForEach(IsCoreWordProbability, entry =>
             {
                 var probabilities = entry.Value;
                 List<String> keys = new List<String>(probabilities.Keys);
@@ -88,7 +88,7 @@ namespace Deduplication
 
         void ComputePosteriorIsCoreProbabilitySpatialContextModel()
         {
-            Parallel.ForEach(isCoreWordProbability, entry =>
+            Parallel.ForEach(IsCoreWordProbability, entry =>
             {
                 var probabilities = entry.Value;
                 List<String> keys = new List<String>(probabilities.Keys);
@@ -222,7 +222,7 @@ namespace Deduplication
             Object maxDiffLock = new Object();
             if(model == Model.Name)
             {
-                Parallel.ForEach(isCoreWordProbability, entry =>
+                Parallel.ForEach(IsCoreWordProbability, entry =>
                 {
                     double absoluteDiff = ComputeIsCoreProbabilityNameModel(entry.Value);
                     lock (maxDiffLock)
@@ -233,7 +233,7 @@ namespace Deduplication
             }
             else if(model == Model.SpatialContext)
             {
-                Parallel.ForEach(isCoreWordProbability, entry =>
+                Parallel.ForEach(IsCoreWordProbability, entry =>
                 {
                     double absoluteDiff = ComputeIsCoreProbabilitySpatialContextModel(entry.Value, entry.Key);
                     lock (maxDiffLock)
@@ -247,7 +247,7 @@ namespace Deduplication
 
         void UpdateCoreWordProbabilities()
         {
-            int numPlaceNames = isCoreWordProbability.Count;
+            int numPlaceNames = IsCoreWordProbability.Count;
             List<String> keys = new List<String>(coreWordDistribution.Keys);
             Parallel.ForEach(keys, word =>
             {
@@ -255,7 +255,7 @@ namespace Deduplication
                 // Sum up the probabilities of 'is word in the core of placeName' for each 'placeName' containing 'word' 
                 foreach (Place place in invertedIndex[word])
                 {
-                    var probabilities = isCoreWordProbability[place];
+                    var probabilities = IsCoreWordProbability[place];
                     numerator += probabilities[word];
                 }
                 coreWordDistribution[word] = numerator / numPlaceNames;
@@ -265,7 +265,7 @@ namespace Deduplication
         void UpdateBackgroundDistributionNameModel()
         {
             List<String> keys = new List<String>(backgroundWordDistribution.Keys);
-            int numPlaceNames = isCoreWordProbability.Count;
+            int numPlaceNames = IsCoreWordProbability.Count;
             double denominator = numWords - numPlaceNames;
             Parallel.ForEach(keys, word =>
             {
@@ -273,7 +273,7 @@ namespace Deduplication
                 // Sum up the probabilities of 'is word in the core of placeName' for each 'placeName' containing 'word' 
                 foreach (Place place in invertedIndex[word])
                 {
-                    var probabilities = isCoreWordProbability[place];
+                    var probabilities = IsCoreWordProbability[place];
                     numerator += (1 - probabilities[word]);
                 }
                 backgroundWordDistribution[word] = numerator / denominator;
@@ -288,13 +288,13 @@ namespace Deduplication
                 var wordDistribution = tileDistribution.Value;
                 List<String> words = new List<String>(wordDistribution.Keys);
                 double denominator = 0;
-                foreach (string word in words)
+                foreach (string word in vocabulary)
                 {
                     foreach (Place place in invertedIndex[word])
                     {
                         if (Database.GetTileId(place) == tileId)
                         {
-                            var probabilities = isCoreWordProbability[place];
+                            var probabilities = IsCoreWordProbability[place];
                             denominator += (1 - probabilities[word]);
                         }
                     }
@@ -308,7 +308,7 @@ namespace Deduplication
                     {
                         if (Database.GetTileId(place) == tileId)
                         {
-                            var probabilities = isCoreWordProbability[place];
+                            var probabilities = IsCoreWordProbability[place];
                             numerator += (1 - probabilities[word]);
                         }
                     }
@@ -317,6 +317,7 @@ namespace Deduplication
                     wordDistribution[word] = BackgroundDistributonSmoothingFactor * wordDistribution[word]
                        + (1 - BackgroundDistributonSmoothingFactor) * backgroundWordDistribution[word];
                 }
+                NormalizeProbabilities(words, wordDistribution);
             });
         }
 
@@ -337,12 +338,12 @@ namespace Deduplication
 
         double ComputeIDF(string word)
         {
-            return Math.Log(Convert.ToDouble(isCoreWordProbability.Count)/invertedIndex[word].Count);
+            return Math.Log(Convert.ToDouble(IsCoreWordProbability.Count)/invertedIndex[word].Count);
         }
 
         public void ComputePosteriorIsCoreProbabilityByIDF()
         {
-            Parallel.ForEach(isCoreWordProbability, entry =>
+            Parallel.ForEach(IsCoreWordProbability, entry =>
             {
                 var probabilities = entry.Value;
                 List<String> keys = new List<String>(probabilities.Keys);
@@ -378,7 +379,8 @@ namespace Deduplication
         {
             // Transforms s to lowercase and removes garbage characters
             s = s.ToLower();
-            s = s.Trim(new Char[] { '(', '\"', ')', ',', '{', '}', '/' });
+            s = s.Trim();
+            s = s.Trim(new Char[] { '(', '\"', ')', ',', '{', '}', '/', '.' });
             return s;
         }
 
@@ -388,10 +390,10 @@ namespace Deduplication
             int tileId = PlacesDatabase.UndefinedTileId;
             if (place.location != null)
                 tileId = Database.GetTileId(place);
-            if (!isCoreWordProbability.ContainsKey(place))
+            if (!IsCoreWordProbability.ContainsKey(place))
             {
-                isCoreWordProbability.Add(place, new Dictionary<String, Double>());
-                Dictionary<String, Double> probabilityList = isCoreWordProbability[place];
+                IsCoreWordProbability.Add(place, new Dictionary<String, Double>());
+                Dictionary<String, Double> probabilityList = IsCoreWordProbability[place];
                 string[] words = place.title.Split(' ');
                 foreach (string word in words)
                 {

@@ -16,6 +16,7 @@ namespace Deduplication
             string[] filePaths = Directory.GetFiles("../../../Data/");
             foreach (string filePath in filePaths)
                 database.Load(filePath);
+
             //database.GenerateTiles(0.05);
             database.GenerateTilesByCity();
 
@@ -24,10 +25,19 @@ namespace Deduplication
             //database.AddPlace("Starbucks");
 
             deduplication.Setup();
-         
+
             // Run the expectation maximization algorithm
-            deduplication.ExpectationMaximization(100, 1E-3, Deduplication.Model.IDF);
-            var test = deduplication.ComputeIsCoreProbabilityNameModel("Golden Triangle");
+            deduplication.ExpectationMaximization(100, 1E-3, Deduplication.Model.SpatialContext);
+            //var cp = deduplication.IsCoreWordProbability[database.GetByName("Metro-Station Mouton Duvernet (Linie 4)")[0]];
+            Test test = new Test();
+            test.LoadGroundTruthFromFile("GroundTruth.txt");
+            System.IO.StreamWriter file = new System.IO.StreamWriter("precision SpatialContext.csv");
+            for (int i = 1; i < 31; ++i)
+            {
+                double precision = test.GetPrecision(deduplication.IsCoreWordProbability, i * 10);
+                file.WriteLine(i * 10 + "," + precision);
+            }
+            file.Close();
         }
     }
 }
